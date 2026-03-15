@@ -1,5 +1,4 @@
-# Ephemeral Comms - Frontend
-
+# Ephemeral Comms
 A temporary, password-protected communication platform built with React + Vite.
 
 ## Quick Start
