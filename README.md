@@ -1,84 +1,102 @@
-# 🐙 gitstats
+# Ephemeral Comms - Frontend
 
-GitHub profile analytics dashboard — Go backend + vanilla JS frontend, hosted natively on NixOS.
+A temporary, password-protected communication platform built with React + Vite.
 
-## Stack
-- **Backend**: Go (stdlib only, no frameworks)
-  - In-memory cache (5 min TTL)
-  - Per-IP rate limiter (token bucket)
-  - GitHub token injection
-- **Frontend**: Vanilla HTML/CSS/JS
-- **Hosting**: NixOS systemd service via Nix flake
+## Quick Start
 
-## Project Structure
-```
-gitstats/
-├── cmd/server/main.go              # HTTP server, routes
-├── internal/
-│   ├── cache/cache.go              # Thread-safe TTL cache
-│   ├── ratelimit/ratelimit.go      # Per-IP token bucket
-│   └── github/client.go           # GitHub API client
-├── static/index.html               # Frontend
-├── flake.nix                       # Nix build + NixOS module
-└── go.mod
-```
+### Prerequisites
+- Node.js 16+ (works well on NixOS with `nix develop`)
+- npm or pnpm
 
-## Dev (local)
+### Installation
 
 ```bash
-# Enter dev shell (installs Go, gopls, air)
-nix develop
+# Install dependencies
+npm install
 
-# Run with hot reload
-export GITHUB_TOKEN=ghp_yourtoken   # optional but recommended
-air
-
-# Or just run directly
-go run ./cmd/server
-# → http://localhost:8080
+# Start dev server
+npm run dev
 ```
 
-## Deploy on NixOS
+The dev server will open at `http://localhost:5173`
 
-Add to your `/etc/nixos/flake.nix`:
+### Build for Production
+
+```bash
+npm run build
+npm run preview
+```
+
+## Project Structure
+
+```
+src/
+├── main.jsx              # React entry point
+├── App.jsx              # Root component
+├── index.css            # Global Tailwind styles
+├── pages/
+│   └── EphemeralComms.jsx   # Main page component
+└── components/
+    ├── AuthScreen.jsx    # Login/Create session screen
+    └── ChatScreen.jsx    # Chat interface
+```
+
+## Features
+
+✅ **Create or join password-protected sessions**
+✅ **Real-time messaging** (ready for Socket.IO)
+✅ **File sharing** (up to 50MB files)
+✅ **Presence indicators** (online users)
+✅ **Typing indicators**
+✅ **Session ID sharing** (with copy button)
+✅ **Responsive design** (mobile & desktop)
+
+## Technologies
+
+- **React 18** - UI framework
+- **Vite** - Build tool & dev server
+- **Tailwind CSS** - Styling
+- **Lucide Icons** - UI icons
+- **Socket.IO** (ready to integrate) - Real-time communication
+
+## Next: Backend Integration
+
+This frontend is ready to connect to a Node.js + Socket.IO backend.
+
+Replace the mock state management with Socket.IO events:
+- `connect` - Join session
+- `message` - Send/receive messages
+- `file-upload` - Share files
+- `user-joined` / `user-left` - Presence updates
+- `typing` - Typing indicators
+- `disconnect` - Leave session
+
+## NixOS Setup
+
+Create a `flake.nix` in the project root:
 
 ```nix
-inputs.gitstats.url = "path:/home/you/gitstats";
+{
+  inputs = {
+    flake-utils.url = "github:numtide/flake-utils";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  };
 
-outputs = { nixpkgs, gitstats, ... }: {
-  nixosConfigurations.yourhostname = nixpkgs.lib.nixosSystem {
-    modules = [
-      gitstats.nixosModules.default
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let pkgs = nixpkgs.legacyPackages.${system}; in
       {
-        services.gitstats = {
-          enable          = true;
-          port            = 8080;
-          # Optional: path to file containing GITHUB_TOKEN=ghp_xxx
-          githubTokenFile = /run/secrets/github_token;
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [ nodejs ];
         };
       }
-    ];
-  };
-};
+    );
+}
 ```
 
 Then:
 ```bash
-sudo nixos-rebuild switch
-# Service starts automatically, survives reboots
+nix develop
+npm install
+npm run dev
 ```
-
-## GitHub Token (recommended)
-
-Without token: 60 req/hr | With token: 5000 req/hr
-
-1. Go to https://github.com/settings/tokens
-2. Generate a classic token with `read:user`, `public_repo` scopes
-3. Save to a file: `echo "GITHUB_TOKEN=ghp_xxx" > /run/secrets/github_token`
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/user/:username` | Merged user + repos + events |
-| GET | `/api/health` | Server health + cache size |
