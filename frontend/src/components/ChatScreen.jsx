@@ -1,13 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
 import {
     Send, Paperclip, LogOut, Copy, CheckCircle2,
-    Lock, Users, Clock, Zap, FileText, Trash2, Edit2, Check, CheckCheck, X
+    Lock, Users, Clock, Zap, FileText, Trash2, Edit2, Check, CheckCheck, X,
+    Bell
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
 const BACKEND_URL = `http://${window.location.hostname}:3001`
 
-export default function ChatScreen({ sessionId, username, password, onLogout }) {
+export default function ChatScreen({
+    sessionId,
+    username,
+    password,
+    onLogout,
+    onJoinRoom,
+    onReceiveInvite,
+    onReceiveRejection,
+    notificationCount,
+    onToggleNotifications
+}) {
     const [messages, setMessages] = useState([])
     const [messageInput, setMessageInput] = useState('')
     const [onlineUsers, setOnlineUsers] = useState([{ id: 'self', name: username, isYou: true }])
@@ -18,6 +29,9 @@ export default function ChatScreen({ sessionId, username, password, onLogout }) 
     const [copied, setCopied] = useState(false)
     const [connected, setConnected] = useState(false)
     const [joinError, setJoinError] = useState('')
+
+    // Batch 2.1 states (Invites)
+    const [inviteForm, setInviteForm] = useState(null) // { targetUser, message }
 
     // Batch 2 states
     const [editingMessageId, setEditingMessageId] = useState(null)
@@ -61,7 +75,6 @@ export default function ChatScreen({ sessionId, username, password, onLogout }) 
 
         socket.on('message', (msg) => {
             setMessages((prev) => [...prev, { ...msg, isYou: msg.sender === username && msg.isYou }])
-            // If we are looking at the chat, mark as read
             if (document.visibilityState === 'visible') {
                 socket.emit('messages-read', { sessionId, messageIds: [msg.id], reader: username })
             }
@@ -82,6 +95,16 @@ export default function ChatScreen({ sessionId, username, password, onLogout }) 
         socket.on('file-shared', (file) => setFiles((prev) => [...prev, file]))
 
         socket.on('clear-permission-request', ({ requester }) => setClearRequest({ requester }))
+
+        socket.on('invite-received', (inviteData) => {
+            console.log('%c[INVITE-RCV]', 'background: #06b6d4; color: white; padding: 2px 5px;', inviteData)
+            onReceiveInvite({ ...inviteData, targetSocket: socketRef.current })
+        })
+
+        socket.on('rejection-received', (rejectionData) => {
+            console.log('%c[REJECTION-RCV]', 'background: #ef4444; color: white; padding: 2px 5px;', rejectionData)
+            onReceiveRejection(rejectionData)
+        })
 
         socket.on('chat-cleared', ({ type }) => {
             setMessages([])
@@ -169,6 +192,30 @@ export default function ChatScreen({ sessionId, username, password, onLogout }) 
         setTimeout(() => setCopied(false), 2000)
     }
 
+    const handleInviteUser = (targetUser) => {
+        if (!socketRef.current || targetUser.isYou) return
+        setInviteForm({ targetUser, message: '' })
+    }
+
+    const submitInvite = () => {
+        if (!inviteForm || !socketRef.current) return
+
+        const privateSessionId = Math.random().toString(36).substring(2, 10).toUpperCase()
+        const privatePassword = Math.random().toString(36).substring(2, 8)
+
+        socketRef.current.emit('invite-user', {
+            targetId: inviteForm.targetUser.id,
+            sessionId: privateSessionId,
+            password: privatePassword,
+            inviterName: username,
+            message: inviteForm.message || 'Hey, join me in a private room!'
+        })
+
+        onJoinRoom({ sessionId: privateSessionId, username, password: privatePassword })
+        addSystemMessage(`Sent invite to ${inviteForm.targetUser.name}`)
+        setInviteForm(null)
+    }
+
     if (joinError) return (
         <div className="h-screen bg-slate-900 flex items-center justify-center p-4">
             <div className="bg-slate-800 border border-red-500/40 rounded-xl p-8 text-center space-y-4 max-w-sm w-full">
@@ -192,6 +239,15 @@ export default function ChatScreen({ sessionId, username, password, onLogout }) 
                 </div>
 
                 <div className="flex items-center gap-2">
+                    <button onClick={onToggleNotifications} className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:text-cyan-400 transition relative">
+                        <Bell className="w-5 h-5" />
+                        {notificationCount > 0 && (
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-bounce">
+                                {notificationCount}
+                            </span>
+                        )}
+                    </button>
+
                     <button onClick={copySessionId} className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:text-white transition">
                         {copied ? <CheckCircle2 className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5" />}
                     </button>
@@ -223,6 +279,30 @@ export default function ChatScreen({ sessionId, username, password, onLogout }) 
                         <div className="flex gap-3">
                             <button onClick={() => handleClearResponse(false)} className="flex-1 py-2 rounded-lg bg-slate-700 text-white font-medium hover:bg-slate-600 transition">Decline</button>
                             <button onClick={() => handleClearResponse(true)} className="flex-1 py-2 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition">Clear All</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Invite Form Modal */}
+            {inviteForm && (
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Zap className="w-5 h-5 text-cyan-400" />
+                            <h3 className="text-white font-bold text-lg">Invite {inviteForm.targetUser.name}</h3>
+                        </div>
+                        <p className="text-slate-400 text-sm mb-4">Invite them to a new private session. Add a message if you like:</p>
+                        <textarea
+                            value={inviteForm.message}
+                            onChange={(e) => setInviteForm({ ...inviteForm, message: e.target.value })}
+                            placeholder="e.g., Come over here for a second!"
+                            className="w-full h-24 bg-slate-900 border border-slate-700 rounded-lg p-3 text-white text-sm focus:outline-none focus:border-cyan-500/50 transition mb-6 resize-none"
+                            autoFocus
+                        />
+                        <div className="flex gap-3">
+                            <button onClick={() => setInviteForm(null)} className="flex-1 py-2 rounded-lg bg-slate-700 text-white font-medium hover:bg-slate-600 transition">Cancel</button>
+                            <button onClick={submitInvite} className="flex-1 py-2 rounded-lg bg-cyan-500 text-white font-medium hover:bg-cyan-600 transition shadow-lg shadow-cyan-500/20">Send Invite</button>
                         </div>
                     </div>
                 </div>
@@ -301,9 +381,19 @@ export default function ChatScreen({ sessionId, username, password, onLogout }) 
                 <div className="w-64 hidden xl:block">
                     <div className="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-6 h-full flex flex-col">
                         <div className="flex items-center gap-2 mb-6"><Users className="w-5 h-5 text-cyan-400" /><h2 className="font-bold text-white uppercase tracking-widest text-sm">Online</h2><span className="ml-auto bg-cyan-500/20 text-cyan-400 px-2 py-0.5 rounded text-[10px] font-bold">{onlineUsers.length}</span></div>
-                        <div className="space-y-3 flex-1 overflow-y-auto no-scrollbar">{onlineUsers.map((u) => (
-                            <div key={u.id} className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)] animate-pulse" /><p className="text-sm font-medium text-slate-300 truncate">{u.name}{u.isYou && <span className="text-[10px] text-slate-500 ml-1">(You)</span>}</p></div>
-                        ))}</div>
+                        <div className="space-y-3 flex-1 overflow-y-auto no-scrollbar">
+                            {onlineUsers.map((u) => (
+                                <div
+                                    key={u.id}
+                                    onClick={() => !u.isYou && handleInviteUser(u)}
+                                    className={`flex items-center gap-3 p-2 rounded-lg transition ${!u.isYou ? 'cursor-pointer hover:bg-slate-700/50' : ''}`}
+                                    title={!u.isYou ? `Invite ${u.name} to private room` : ''}
+                                >
+                                    <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)] animate-pulse" />
+                                    <p className="text-sm font-medium text-slate-300 truncate font-mono tracking-tight">{u.name}{u.isYou && <span className="text-[10px] text-slate-500 ml-1">(You)</span>}</p>
+                                </div>
+                            ))}
+                        </div>
                         <div className="mt-8 space-y-4 pt-6 border-t border-slate-700/50">
                             <div className="flex gap-3 text-slate-500"><Clock className="w-4 h-4 flex-shrink-0" /><p className="text-[10px] leading-relaxed uppercase tracking-tight font-medium">Auto-destruction active. Persistence is zero.</p></div>
                             <div className="flex gap-3 text-slate-500"><Lock className="w-4 h-4 flex-shrink-0" /><p className="text-[10px] leading-relaxed uppercase tracking-tight font-medium">Memory-only storage. No logs, no metadata.</p></div>

@@ -149,6 +149,37 @@ io.on('connection', (socket) => {
         io.to(sessionId).emit('file-shared', file)
     })
 
+    // ── Room Invitations ─────────────────────────────────────────────────────
+    socket.on('invite-user', ({ targetId, sessionId, password, inviterName, message }) => {
+        console.log(`[invite] ${inviterName} (${socket.id}) -> ${targetId} for room: ${sessionId}`)
+        const targetSocket = io.sockets.sockets.get(targetId)
+        if (targetSocket) {
+            console.log(`[invite] Target socket found. Emitting 'invite-received'.`)
+            io.to(targetId).emit('invite-received', {
+                sessionId,
+                password,
+                inviterName,
+                message,
+                inviterId: socket.id
+            })
+        } else {
+            console.warn(`[invite] Target socket NOT FOUND: ${targetId}`)
+        }
+    })
+
+    socket.on('invite-rejected', ({ targetId, message, declinerName }) => {
+        console.log(`[reject] ${declinerName} (${socket.id}) -> ${targetId}`)
+        const targetSocket = io.sockets.sockets.get(targetId)
+        if (targetSocket) {
+            io.to(targetId).emit('rejection-received', {
+                message,
+                declinerName
+            })
+        } else {
+            console.warn(`[reject] Target socket NOT FOUND: ${targetId}`)
+        }
+    })
+
     // ── Disconnect ──────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
         if (!currentSessionId || !sessions.has(currentSessionId)) return

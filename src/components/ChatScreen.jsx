@@ -2,13 +2,25 @@ import { useState, useEffect, useRef } from 'react'
 import {
     Send, Paperclip, LogOut, Copy, CheckCircle2,
     Lock, Users, Clock, Zap, FileText, Trash2, Edit2, Check, CheckCheck, X,
-    ChevronLeft, ChevronRight
+    ChevronLeft, ChevronRight, Bell
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
 const BACKEND_URL = `http://${window.location.hostname}:3001`
 
-export default function ChatScreen({ sessionId, username, password, alias, onUpdateAlias, onLogout, onJoinRoom }) {
+export default function ChatScreen({
+    sessionId,
+    username,
+    password,
+    alias,
+    onUpdateAlias,
+    onLogout,
+    onJoinRoom,
+    onReceiveInvite,
+    onReceiveRejection,
+    notificationCount,
+    onToggleNotifications
+}) {
     const [messages, setMessages] = useState([])
     const [messageInput, setMessageInput] = useState('')
     const [onlineUsers, setOnlineUsers] = useState([{ id: 'self', name: username, isYou: true }])
@@ -23,12 +35,9 @@ export default function ChatScreen({ sessionId, username, password, alias, onUpd
     // Batch 2.2 states (Aliases & Rejections)
     const [isEditingAlias, setIsEditingAlias] = useState(false)
     const [tempAlias, setTempAlias] = useState(alias)
-    const [rejectionForm, setRejectionForm] = useState(null) // { targetId, declinerName }
-    const [incomingRejection, setIncomingRejection] = useState(null) // { message, declinerName }
 
     // Batch 2.1 states
     const [isOnlineListVisible, setIsOnlineListVisible] = useState(true)
-    const [incomingInvite, setIncomingInvite] = useState(null) // { sessionId, password, inviterName, message, inviterId }
     const [inviteForm, setInviteForm] = useState(null) // { targetUser, message }
 
     // Batch 2 states
@@ -102,14 +111,14 @@ export default function ChatScreen({ sessionId, username, password, alias, onUpd
             setClearRequest({ requester })
         })
 
-        socket.on('invite-received', ({ sessionId: invitedId, password: invitedPassword, inviterName, message, inviterId }) => {
-            console.log(`[invite-rcv] from ${inviterName}: ${message}`)
-            setIncomingInvite({ sessionId: invitedId, password: invitedPassword, inviterName, message, inviterId })
+        socket.on('invite-received', (inviteData) => {
+            console.log(`%c[INVITE-RCV] from ${inviteData.inviterName}`, 'background: #06b6d4; color: #fff; padding: 2px 5px; border-radius: 3px;')
+            onReceiveInvite({ ...inviteData, targetSocket: socketRef.current })
         })
 
-        socket.on('rejection-received', ({ message, declinerName }) => {
-            console.log(`[rejection-rcv] from ${declinerName}: ${message}`)
-            setIncomingRejection({ message, declinerName })
+        socket.on('rejection-received', (rejectionData) => {
+            console.log(`%c[REJECTION-RCV] from ${rejectionData.declinerName}`, 'background: #ef4444; color: #fff; padding: 2px 5px; border-radius: 3px;')
+            onReceiveRejection(rejectionData)
         })
 
         socket.on('chat-cleared', ({ type }) => {
@@ -167,32 +176,6 @@ export default function ChatScreen({ sessionId, username, password, alias, onUpd
         onJoinRoom({ sessionId: privateSessionId, username, password: privatePassword })
         addSystemMessage(`Sent invite to ${inviteForm.targetUser.name}`)
         setInviteForm(null)
-    }
-
-    const handleAcceptInvite = () => {
-        if (!incomingInvite) return
-        onJoinRoom({
-            sessionId: incomingInvite.sessionId,
-            username,
-            password: incomingInvite.password
-        })
-        setIncomingInvite(null)
-    }
-
-    const handleDeclineInvite = () => {
-        if (!incomingInvite) return
-        setRejectionForm({ targetId: incomingInvite.inviterId, declinerName: username, message: '' })
-        setIncomingInvite(null)
-    }
-
-    const submitRejection = () => {
-        if (!rejectionForm || !socketRef.current) return
-        socketRef.current.emit('invite-rejected', {
-            targetId: rejectionForm.targetId,
-            message: rejectionForm.message || 'Declined the invitation',
-            declinerName: username
-        })
-        setRejectionForm(null)
     }
 
     const sendMessage = () => {
@@ -314,6 +297,15 @@ export default function ChatScreen({ sessionId, username, password, alias, onUpd
 
                 {/* Right: Actions */}
                 <div className="flex items-center gap-2 flex-1 justify-end">
+                    <button onClick={onToggleNotifications} className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:text-cyan-400 transition relative">
+                        <Bell className="w-5 h-5" />
+                        {notificationCount > 0 && (
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-bounce">
+                                {notificationCount}
+                            </span>
+                        )}
+                    </button>
+
                     <button onClick={copySessionId} className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:text-white transition">
                         {copied ? <CheckCircle2 className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5" />}
                     </button>
@@ -373,82 +365,6 @@ export default function ChatScreen({ sessionId, username, password, alias, onUpd
                     </div>
                 </div>
             )}
-
-            {/* Rejection Form Modal */}
-            {rejectionForm && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-center">
-                    <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in duration-200">
-                        <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4 border border-red-500/20">
-                            <X className="w-6 h-6 text-red-400" />
-                        </div>
-                        <h3 className="text-white font-bold text-lg mb-2">Send Message?</h3>
-                        <p className="text-slate-400 text-sm mb-4">Tell <span className="text-cyan-400 font-semibold">{rejectionForm.declinerName}</span> why you declined:</p>
-                        <textarea
-                            value={rejectionForm.message}
-                            onChange={(e) => setRejectionForm({ ...rejectionForm, message: e.target.value })}
-                            placeholder="e.g., In a meeting, talk later!"
-                            className="w-full h-24 bg-slate-900 border border-slate-700 rounded-lg p-3 text-white text-sm focus:outline-none focus:border-cyan-500/50 transition mb-4 resize-none"
-                            autoFocus
-                        />
-                        <div className="flex gap-3">
-                            <button onClick={() => setRejectionForm(null)} className="flex-1 py-2 rounded-lg bg-slate-700 text-white font-medium hover:bg-slate-600 transition">Skip</button>
-                            <button onClick={submitRejection} className="flex-1 py-2 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition">Send Msg</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Top Notifications Center */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] w-full max-w-md px-4 flex flex-col gap-3">
-                {/* Incoming Invitation */}
-                {incomingInvite && (
-                    <div className="bg-slate-800 border-2 border-cyan-500/30 rounded-2x p-4 shadow-2xl shadow-cyan-500/10 backdrop-blur-md animate-in slide-in-from-top duration-300 rounded-2xl">
-                        <div className="flex gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-cyan-500/10 flex items-center justify-center flex-shrink-0 border border-cyan-500/20">
-                                <Zap className="w-6 h-6 text-cyan-400 animate-pulse" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <h4 className="text-white font-bold text-sm tracking-wide uppercase">New Invitation</h4>
-                                <p className="text-slate-400 text-xs mb-2 truncate">
-                                    <span className="text-cyan-400 font-semibold">{incomingInvite.inviterName}</span> is inviting you.
-                                </p>
-                                {incomingInvite.message && (
-                                    <div className="bg-slate-900/50 rounded-lg p-2 mb-3 border border-slate-700/50">
-                                        <p className="text-slate-300 text-xs italic break-words line-clamp-2">"{incomingInvite.message}"</p>
-                                    </div>
-                                )}
-                                <div className="flex gap-2">
-                                    <button onClick={handleDeclineInvite} className="flex-1 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition">Decline</button>
-                                    <button onClick={handleAcceptInvite} className="flex-1 py-1.5 rounded-lg bg-cyan-500 text-white text-xs font-bold hover:bg-cyan-600 transition uppercase tracking-tighter">Join Room</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Incoming Rejection */}
-                {incomingRejection && (
-                    <div className="bg-slate-800 border-2 border-red-500/30 rounded-2xl p-4 shadow-2xl shadow-red-500/10 backdrop-blur-md animate-in slide-in-from-top duration-300">
-                        <div className="flex gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center flex-shrink-0 border border-red-500/20">
-                                <X className="w-6 h-6 text-red-500" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <h4 className="text-white font-bold text-sm tracking-wide uppercase">Invite Declined</h4>
-                                <p className="text-slate-400 text-xs mb-2">
-                                    <span className="text-red-400 font-semibold">{incomingRejection.declinerName}</span> rejected the invite.
-                                </p>
-                                {incomingRejection.message && (
-                                    <div className="bg-slate-900/50 rounded-lg p-2 mb-3 border border-slate-700/50 font-mono italic">
-                                        <p className="text-slate-300 text-xs break-words">"{incomingRejection.message}"</p>
-                                    </div>
-                                )}
-                                <button onClick={() => setIncomingRejection(null)} className="w-full py-1.5 rounded-lg bg-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition">Dismiss</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
 
             <div className="flex flex-1 overflow-hidden p-4 gap-4 relative">
                 <div className="flex-1 flex flex-col min-w-0">
