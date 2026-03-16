@@ -19,7 +19,8 @@ export default function ChatScreen({
     onReceiveInvite,
     onReceiveRejection,
     notificationCount,
-    onToggleNotifications
+    onToggleNotifications,
+    onNewMessage
 }) {
     const [messages, setMessages] = useState([])
     const [messageInput, setMessageInput] = useState('')
@@ -45,6 +46,14 @@ export default function ChatScreen({
     const [editInput, setEditInput] = useState('')
     const [showClearOptions, setShowClearOptions] = useState(false)
     const [clearRequest, setClearRequest] = useState(null) // { requester }
+
+    // Mention Autocomplete states
+    const [mentionState, setMentionState] = useState({
+        visible: false,
+        query: '',
+        cursorPosition: 0,
+        activeIndex: 0
+    })
 
     const messagesEndRef = useRef(null)
     const fileInputRef = useRef(null)
@@ -83,6 +92,7 @@ export default function ChatScreen({
         socket.on('message', (msg) => {
             console.log(`[msg-rcv] from ${msg.sender}: ${msg.content}`)
             setMessages((prev) => [...prev, { ...msg, isYou: msg.isYou }])
+            if (onNewMessage) onNewMessage(msg)
             if (document.visibilityState === 'visible') {
                 socket.emit('messages-read', { sessionId, messageIds: [msg.id], reader: username })
             }
@@ -182,7 +192,67 @@ export default function ChatScreen({
         if (!messageInput.trim() || !socketRef.current) return
         socketRef.current.emit('message', { sessionId, content: messageInput, sender: username, timestamp: timestamp() })
         setMessageInput('')
+        setMentionState(prev => ({ ...prev, visible: false }))
         socketRef.current.emit('typing', { sessionId, username, isTyping: false })
+    }
+
+    const handleMessageInputChange = (val, cursorIdx) => {
+        setMessageInput(val)
+
+        // Find last '@' before cursor
+        const textBeforeCursor = val.slice(0, cursorIdx)
+        const atIdx = textBeforeCursor.lastIndexOf('@')
+
+        if (atIdx !== -1) {
+            // Check if there are spaces between '@' and cursor
+            const query = textBeforeCursor.slice(atIdx + 1)
+            if (!query.includes(' ')) {
+                setMentionState({
+                    visible: true,
+                    query: query.toLowerCase(),
+                    cursorPosition: cursorIdx,
+                    atIndex: atIdx,
+                    activeIndex: 0
+                })
+                return
+            }
+        }
+
+        if (mentionState.visible) {
+            setMentionState(prev => ({ ...prev, visible: false }))
+        }
+    }
+
+    const selectMention = (user) => {
+        const textBefore = messageInput.slice(0, mentionState.atIndex)
+        const textAfter = messageInput.slice(mentionState.cursorPosition)
+        const newMessage = `${textBefore}@${user.name} ${textAfter}`
+        setMessageInput(newMessage)
+        setMentionState(prev => ({ ...prev, visible: false }))
+    }
+
+    const handleKeyDown = (e) => {
+        if (mentionState.visible) {
+            const filteredUsers = onlineUsers.filter(u => u.name.toLowerCase().includes(mentionState.query))
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setMentionState(prev => ({ ...prev, activeIndex: (prev.activeIndex + 1) % filteredUsers.length }))
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setMentionState(prev => ({ ...prev, activeIndex: (prev.activeIndex - 1 + filteredUsers.length) % filteredUsers.length }))
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                if (filteredUsers.length > 0) {
+                    e.preventDefault()
+                    selectMention(filteredUsers[mentionState.activeIndex])
+                }
+            } else if (e.key === 'Escape') {
+                setMentionState(prev => ({ ...prev, visible: false }))
+            }
+        } else if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            sendMessage()
+        }
     }
 
     const startEdit = (msg) => {
@@ -430,7 +500,43 @@ export default function ChatScreen({
                         <button onClick={() => fileInputRef.current?.click()} className="p-3 rounded-xl bg-slate-800 text-slate-400 hover:text-cyan-400 transition border border-slate-700"><Paperclip className="w-6 h-6" /></button>
                         <input ref={fileInputRef} type="file" onChange={handleFileSelect} className="hidden" />
                         <div className="flex-1 relative">
-                            <textarea rows="1" value={messageInput} onChange={(e) => { setMessageInput(e.target.value); socketRef.current?.emit('typing', { sessionId, username, isTyping: e.target.value.length > 0 }) }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="Message..." className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 transition resize-none" />
+                            {mentionState.visible && (
+                                <div className="absolute bottom-full left-0 mb-2 w-64 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-[60] animate-in slide-in-from-bottom duration-200">
+                                    <div className="p-3 border-b border-slate-700/50 bg-slate-900/30">
+                                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Mention User</p>
+                                    </div>
+                                    <div className="max-h-60 overflow-y-auto no-scrollbar">
+                                        {onlineUsers.filter(u => u.name.toLowerCase().includes(mentionState.query)).length === 0 ? (
+                                            <div className="p-4 text-center">
+                                                <p className="text-[10px] text-slate-500 italic">No matching users</p>
+                                            </div>
+                                        ) : (
+                                            onlineUsers.filter(u => u.name.toLowerCase().includes(mentionState.query)).map((u, idx) => (
+                                                <div
+                                                    key={u.id}
+                                                    onClick={() => selectMention(u)}
+                                                    className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${idx === mentionState.activeIndex ? 'bg-purple-500/20 text-purple-400' : 'hover:bg-slate-700/50 text-slate-300'}`}
+                                                >
+                                                    <div className={`w-2 h-2 rounded-full ${idx === mentionState.activeIndex ? 'bg-purple-400 animate-pulse' : 'bg-slate-600'}`} />
+                                                    <span className="text-xs font-bold font-mono tracking-tight">{u.name}</span>
+                                                    {u.isYou && <span className="text-[8px] text-slate-500 opacity-50">(You)</span>}
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            <textarea
+                                rows="1"
+                                value={messageInput}
+                                onChange={(e) => {
+                                    handleMessageInputChange(e.target.value, e.target.selectionStart)
+                                    socketRef.current?.emit('typing', { sessionId, username, isTyping: e.target.value.length > 0 })
+                                }}
+                                onKeyDown={handleKeyDown}
+                                placeholder="Message..."
+                                className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 transition resize-none"
+                            />
                         </div>
                         <button onClick={sendMessage} disabled={!messageInput.trim()} className="p-3 rounded-xl bg-cyan-500 text-white hover:bg-cyan-600 disabled:bg-slate-800 disabled:text-slate-600 transition shadow-lg shadow-cyan-500/10 transform active:scale-95"><Send className="w-6 h-6" /></button>
                     </div>
