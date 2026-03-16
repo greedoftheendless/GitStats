@@ -50,7 +50,7 @@ io.on('connection', (socket) => {
     let currentUsername = null
 
     // ── Join or create a session ────────────────────────────────────────────
-    socket.on('join-session', ({ sessionId, username, password }) => {
+    socket.on('join-session', ({ sessionId, username, password, avatar }) => {
         if (!sessionId || !username || !password) {
             socket.emit('join-error', { message: 'Missing session ID, username, or password.' })
             return
@@ -66,12 +66,12 @@ io.on('connection', (socket) => {
                 return
             }
             // Add user to existing session
-            session.users.set(socket.id, { id: socket.id, username })
+            session.users.set(socket.id, { id: socket.id, username, avatar })
         } else {
             // Create new session
             sessions.set(sid, {
                 password,
-                users: new Map([[socket.id, { id: socket.id, username }]])
+                users: new Map([[socket.id, { id: socket.id, username, avatar }]])
             })
         }
 
@@ -92,12 +92,13 @@ io.on('connection', (socket) => {
     })
 
     // ── Broadcast a chat message ────────────────────────────────────────────
-    socket.on('message', ({ sessionId, sender, content, timestamp }) => {
+    socket.on('message', ({ sessionId, sender, content, avatar, timestamp }) => {
         if (!sessionId || !sessions.has(sessionId)) return
         const msg = {
             id: 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
             sender,
             content,
+            avatar,
             timestamp
         }
         // Broadcast to everyone else in the room (not the sender)

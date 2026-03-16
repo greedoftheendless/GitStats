@@ -19,7 +19,7 @@ export default function EphemeralComms() {
 
     // Notification & Activity states
     const [roomActivity, setRoomActivity] = useState({}) // { roomId: { unread: 0, hasPing: false } }
-    const [notifSettings, setNotifSettings] = useState({ mentionsOnly: true, mentionScope: 'all' }) // scope: 'all' | 'inactive'
+    const [notifSettings, setNotifSettings] = useState({ mentionsOnly: true, mentionScope: 'all', notifVolume: 0.5 }) // volume: 0.0 to 1.0
     const [showSettings, setShowSettings] = useState(false)
 
     // Derived states
@@ -42,7 +42,8 @@ export default function EphemeralComms() {
             id: sessionId,
             username: data.username,
             password: data.password,
-            alias: data.alias || `Room ${rooms.length + 1}`
+            alias: data.alias || `Room ${rooms.length + 1}`,
+            avatar: data.avatar || null
         }
 
         setRooms([...rooms, newRoom])
@@ -78,14 +79,17 @@ export default function EphemeralComms() {
             const gain = context.createGain()
             osc.type = 'sine'
             osc.frequency.setValueAtTime(880, context.currentTime) // A5
-            gain.gain.setValueAtTime(0.1, context.currentTime)
+
+            const volume = notifSettings.notifVolume ?? 0.5
+            gain.gain.setValueAtTime(volume * 0.2, context.currentTime)
             gain.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.5)
+
             osc.connect(gain)
             gain.connect(context.destination)
             osc.start()
             osc.stop(context.currentTime + 0.5)
         } catch (e) { console.warn('Audio play blocked or failed', e) }
-    }, [])
+    }, [notifSettings.notifVolume])
 
     const requestNotificationPermission = async () => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -316,6 +320,7 @@ export default function EphemeralComms() {
                             notificationCount={unreadCount}
                             onToggleNotifications={toggleNotifications}
                             onNewMessage={(msg) => handleNewMessage(room.id, msg)}
+                            avatar={room.avatar}
                         />
                     </div>
                 ))}
@@ -419,6 +424,23 @@ export default function EphemeralComms() {
                                             </div>
                                         </div>
                                     )}
+
+                                    <div className="pt-4 border-t border-slate-700/50 space-y-3">
+                                        <div className="flex justify-between items-center px-1">
+                                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">Alert Volume</p>
+                                            <span className="text-[9px] text-cyan-400 font-mono font-bold">{Math.round(notifSettings.notifVolume * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="1"
+                                            step="0.01"
+                                            value={notifSettings.notifVolume}
+                                            onChange={(e) => setNotifSettings({ ...notifSettings, notifVolume: parseFloat(e.target.value) })}
+                                            onMouseUp={playSound} // Test sound on change
+                                            className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         )}

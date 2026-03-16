@@ -9,6 +9,19 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
     const [showPassword, setShowPassword] = useState(false)
     const [errorMessage, setErrorMessage] = useState('')
 
+    const [avatar, setAvatar] = useState({ color: 'bg-cyan-500', icon: '👤' })
+
+    const AVATARS = [
+        { color: 'bg-cyan-500', icon: '👤' },
+        { color: 'bg-violet-500', icon: '👻' },
+        { color: 'bg-emerald-500', icon: '🐲' },
+        { color: 'bg-rose-500', icon: '🦊' },
+        { color: 'bg-amber-500', icon: '🐯' },
+        { color: 'bg-indigo-500', icon: '👾' },
+        { color: 'bg-orange-500', icon: '🤖' },
+        { color: 'bg-pink-500', icon: '🦄' },
+    ]
+
     const handleJoin = () => {
         if (!sessionId.trim() || sessionId.length !== 8) {
             setErrorMessage('Session ID must be exactly 8 characters')
@@ -22,7 +35,7 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
             setErrorMessage('Password required')
             return
         }
-        onJoin({ sessionId, username, password })
+        onJoin({ sessionId, username, password, avatar })
         setErrorMessage('')
     }
 
@@ -35,7 +48,7 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
             setErrorMessage('Password must be at least 4 characters')
             return
         }
-        onCreate({ username, password })
+        onCreate({ username, password, avatar })
         setErrorMessage('')
     }
 
@@ -59,6 +72,24 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
                     <p className="text-slate-400 text-sm font-light tracking-wide">
                         Temporary. Secure. Gone Forever.
                     </p>
+                </div>
+
+                {/* Avatar Selection */}
+                <div className="mb-6 animate-in fade-in slide-in-from-bottom duration-500 delay-100">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-3 px-1">Select Identity</label>
+                    <div className="grid grid-cols-4 gap-3 bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
+                        {AVATARS.map((a, i) => (
+                            <button
+                                key={i}
+                                onClick={() => setAvatar(a)}
+                                className={`h-12 w-full rounded-lg flex items-center justify-center text-xl transition-all duration-300 transform ${avatar.color === a.color
+                                    ? `ring-2 ring-white scale-110 shadow-lg ${a.color}`
+                                    : `hover:scale-105 opacity-40 hover:opacity-100 ${a.color}`}`}
+                            >
+                                {a.icon}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Tabs */}
