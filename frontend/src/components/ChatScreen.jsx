@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
-const BACKEND_URL = `http://${window.location.hostname}:3001`
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || `http://${window.location.hostname}:3001`
 
 export default function ChatScreen({
     sessionId,
