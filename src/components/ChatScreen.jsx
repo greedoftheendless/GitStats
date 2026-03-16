@@ -20,11 +20,17 @@ export default function ChatScreen({
     onReceiveRejection,
     notificationCount,
     onToggleNotifications,
-    onNewMessage
+    onNewMessage,
+    pfp // New prop
 }) {
     const [messages, setMessages] = useState([])
-    const [messageInput, setMessageInput] = useState('')
-    const [onlineUsers, setOnlineUsers] = useState([{ id: 'self', name: username, isYou: true }])
+    const [input, setInput] = useState('')
+    const [onlineUsers, setOnlineUsers] = useState([]) // Array of { id, username, alias, pfp }
+    const [socket, setSocket] = useState(null)
+    const [status, setStatus] = useState('connecting')
+    const [error, setError] = useState(null)
+    const [showUsers, setShowUsers] = useState(false)
+    const [aliasEdit, setAliasEdit] = useState(alias)
     const [typingUsers, setTypingUsers] = useState([])
     const [files, setFiles] = useState([])
     const [selectedFile, setSelectedFile] = useState(null)
@@ -47,6 +53,13 @@ export default function ChatScreen({
     const [showClearOptions, setShowClearOptions] = useState(false)
     const [clearRequest, setClearRequest] = useState(null) // { requester }
 
+    // Mention Autocomplete states
+    const [mentionSearch, setMentionSearch] = useState('')
+    const [showMentionList, setShowMentionList] = useState(false)
+    const [mentionIndex, setMentionIndex] = useState(0)
+    const mentionRef = useRef(null)
+
+
     const messagesEndRef = useRef(null)
     const fileInputRef = useRef(null)
     const typingTimeoutRef = useRef(null)
@@ -55,75 +68,89 @@ export default function ChatScreen({
 
     // ── Socket.IO connection ─────────────────────────────────────────
     useEffect(() => {
-        const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'] })
-        socketRef.current = socket
+        const newSocket = io(BACKEND_URL, { transports: ['websocket', 'polling'] })
+        socketRef.current = newSocket
+        setSocket(newSocket)
 
-        socket.on('connect', () => {
+        newSocket.on('connect', () => {
             setConnected(true)
-            socket.emit('join-session', { sessionId, username, password })
+            setStatus('connected')
+            newSocket.emit('join-session', { sessionId, username, password, alias, pfp })
         })
 
-        socket.on('disconnect', () => setConnected(false))
-
-        socket.on('join-error', ({ message }) => setJoinError(message))
-
-        socket.on('session-joined', ({ users }) => {
-            setOnlineUsers(users.map((u) => ({ id: u.id, name: u.username, isYou: u.id === socket.id })))
+        newSocket.on('disconnect', () => {
+            setConnected(false)
+            setStatus('disconnected')
         })
 
-        socket.on('user-joined', ({ username: newUser, users }) => {
-            setOnlineUsers(users.map((u) => ({ id: u.id, name: u.username, isYou: u.id === socket.id })))
+        newSocket.on('join-error', ({ message }) => {
+            setJoinError(message)
+            setStatus('error')
+        })
+
+        newSocket.on('session-joined', ({ success, users, message }) => {
+            if (success) {
+                setOnlineUsers(users)
+                setStatus('connected')
+            } else {
+                setError(message)
+                setStatus('error')
+            }
+        })
+
+        newSocket.on('user-joined', ({ username: newUser, users }) => {
+            setOnlineUsers(users)
             addSystemMessage(`${newUser} joined the session`)
         })
 
-        socket.on('user-left', ({ username: leftUser, users }) => {
-            setOnlineUsers(users.map((u) => ({ id: u.id, name: u.username, isYou: u.id === socket.id })))
+        newSocket.on('user-left', ({ username: leftUser, users }) => {
+            setOnlineUsers(users)
             addSystemMessage(`${leftUser} left the session`)
         })
 
-        socket.on('message', (msg) => {
+        newSocket.on('message', (msg) => {
             console.log(`[msg-rcv] from ${msg.sender}: ${msg.content}`)
             setMessages((prev) => [...prev, { ...msg, isYou: msg.isYou }])
             if (onNewMessage) onNewMessage(msg)
             if (document.visibilityState === 'visible') {
-                socket.emit('messages-read', { sessionId, messageIds: [msg.id], reader: username })
+                newSocket.emit('messages-read', { sessionId, messageIds: [msg.id], reader: username })
             }
         })
 
-        socket.on('message-edited', ({ messageId, newContent }) => {
+        newSocket.on('message-edited', ({ messageId, newContent }) => {
             console.log(`[edit-rcv] ${messageId}: ${newContent}`)
             setMessages((prev) => prev.map(m => m.id === messageId ? { ...m, content: newContent, edited: true } : m))
         })
 
-        socket.on('messages-seen', ({ messageIds, reader }) => {
+        newSocket.on('messages-seen', ({ messageIds, reader }) => {
             setMessages((prev) => prev.map(m => messageIds.includes(m.id) ? { ...m, seen: true } : m))
         })
 
-        socket.on('typing', ({ username: who, isTyping }) => {
+        newSocket.on('typing', ({ username: who, isTyping }) => {
             setTypingUsers((prev) => isTyping ? [...new Set([...prev, who])] : prev.filter((u) => u !== who))
         })
 
-        socket.on('file-shared', (file) => {
+        newSocket.on('file-shared', (file) => {
             console.log(`[file-rcv] ${file.name}`)
             setFiles((prev) => [...prev, file])
         })
 
-        socket.on('clear-permission-request', ({ requester }) => {
+        newSocket.on('clear-permission-request', ({ requester }) => {
             console.log(`[clear-perm-req] from ${requester}`)
             setClearRequest({ requester })
         })
 
-        socket.on('invite-received', (inviteData) => {
+        newSocket.on('invite-received', (inviteData) => {
             console.log(`%c[INVITE-RCV] from ${inviteData.inviterName}`, 'background: #06b6d4; color: #fff; padding: 2px 5px; border-radius: 3px;')
             onReceiveInvite({ ...inviteData, targetSocket: socketRef.current })
         })
 
-        socket.on('rejection-received', (rejectionData) => {
+        newSocket.on('rejection-received', (rejectionData) => {
             console.log(`%c[REJECTION-RCV] from ${rejectionData.declinerName}`, 'background: #ef4444; color: #fff; padding: 2px 5px; border-radius: 3px;')
             onReceiveRejection(rejectionData)
         })
 
-        socket.on('chat-cleared', ({ type }) => {
+        newSocket.on('chat-cleared', ({ type }) => {
             console.log(`[chat-cleared] type: ${type}`)
             setMessages([])
             setFiles([])
@@ -132,8 +159,8 @@ export default function ChatScreen({
             setClearRequest(null)
         })
 
-        return () => socket.disconnect()
-    }, [sessionId, username, password])
+        return () => newSocket.disconnect()
+    }, [sessionId, username, password, alias, pfp])
 
     // ── Helpers ──────────────────────────────────────────────────────
     const timestamp = () => new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
@@ -175,16 +202,82 @@ export default function ChatScreen({
             message: inviteForm.message || 'Hey, join me in a private room!'
         })
 
-        onJoinRoom({ sessionId: privateSessionId, username, password: privatePassword })
-        addSystemMessage(`Sent invite to ${inviteForm.targetUser.name}`)
+        onJoinRoom({ sessionId: privateSessionId, username, password: privatePassword, pfp })
+        addSystemMessage(`Sent invite to ${inviteForm.targetUser.alias}`)
         setInviteForm(null)
     }
 
-    const sendMessage = () => {
-        if (!messageInput.trim() || !socketRef.current) return
-        socketRef.current.emit('message', { sessionId, content: messageInput, sender: username, timestamp: timestamp() })
-        setMessageInput('')
-        socketRef.current.emit('typing', { sessionId, username, isTyping: false })
+    const handleSendMessage = (e) => {
+        if (e) e.preventDefault()
+        if (!input.trim() || !socket) return
+
+        const msg = {
+            id: Date.now().toString(),
+            sender: alias,
+            content: input.trim(),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isYou: true,
+            pfp // Include user's pfp in message
+        }
+
+        socket.emit('message', { sessionId, ...msg })
+        setMessages(prev => [...prev, msg])
+        setInput('')
+        setShowMentionList(false)
+    }
+
+    const filteredMentions = onlineUsers.filter(u =>
+        u.alias.toLowerCase().includes(mentionSearch.toLowerCase()) ||
+        u.username.toLowerCase().includes(mentionSearch.toLowerCase())
+    )
+
+    const insertMention = (user) => {
+        const words = input.split(' ')
+        words[words.length - 1] = `@${user.alias} `
+        setInput(words.join(' '))
+        setShowMentionList(false)
+    }
+
+    const handleInputChange = (e) => {
+        const val = e.target.value
+        setInput(val)
+
+        // Emit typing status
+        if (socketRef.current) {
+            socketRef.current.emit('typing', { sessionId, username, isTyping: val.length > 0 })
+        }
+
+        // Basic mention detection (last word starts with @)
+        const lastWord = val.split(' ').pop()
+        if (lastWord.startsWith('@')) {
+            setMentionSearch(lastWord.slice(1))
+            setShowMentionList(true)
+            setMentionIndex(0)
+        } else {
+            setShowMentionList(false)
+        }
+    }
+
+    const handleInputKeyDown = (e) => {
+        if (showMentionList) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setMentionIndex(i => (i + 1) % filteredMentions.length)
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setMentionIndex(i => (i - 1 + filteredMentions.length) % filteredMentions.length)
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                if (filteredMentions.length > 0) {
+                    e.preventDefault()
+                    insertMention(filteredMentions[mentionIndex])
+                }
+            } else if (e.key === 'Escape') {
+                setShowMentionList(false)
+            }
+        } else if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            handleSendMessage()
+        }
     }
 
     const startEdit = (msg) => {
@@ -374,34 +467,54 @@ export default function ChatScreen({
                         {messages.map((msg) => msg.isSystem ? (
                             <div key={msg.id} className="flex justify-center"><span className="text-[10px] text-slate-500 bg-slate-800/50 px-3 py-1 rounded-full uppercase tracking-tighter">{msg.content}</span></div>
                         ) : (
-                            <div key={msg.id} className={`flex ${msg.isYou ? 'justify-end' : 'justify-start'} group animate-in fade-in slide-in-from-bottom duration-300`}>
-                                <div className={`relative max-w-[80%] px-4 py-2 rounded-2xl ${msg.isYou ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-50' : 'bg-slate-800 border border-slate-700 text-slate-200'}`}>
-                                    {!msg.isYou && <p className="text-[10px] font-bold text-cyan-500 mb-1 uppercase tracking-wide">{msg.sender}</p>}
+                            <div key={msg.id} className={`flex ${msg.isYou ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}>
+                                <div className={`flex gap-3 max-w-[80%] ${msg.isYou ? 'flex-row-reverse' : 'flex-row'}`}>
+                                    {/* PFP Circle */}
+                                    <div className={`w-8 h-8 rounded-full flex-shrink-0 border-2 overflow-hidden flex items-center justify-center bg-slate-800 ${msg.isYou ? 'border-cyan-500/30' : 'border-slate-700'}`}>
+                                        {msg.pfp ? (
+                                            <img src={msg.pfp} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase">{msg.sender[0]}</span>
+                                        )}
+                                    </div>
 
-                                    {editingMessageId === msg.id ? (
-                                        <div className="flex flex-col gap-2 min-w-[200px]">
-                                            <textarea value={editInput} onChange={(e) => setEditInput(e.target.value)} className="w-full bg-slate-900 border border-cyan-500/50 rounded-lg p-2 text-sm focus:outline-none" autoFocus />
-                                            <div className="flex justify-end gap-2 text-xs">
-                                                <button onClick={() => setEditingMessageId(null)} className="text-slate-400">Cancel</button>
-                                                <button onClick={saveEdit} className="text-cyan-400 font-bold">Save</button>
-                                            </div>
+                                    <div className={`space-y-1 ${msg.isYou ? 'items-end' : 'items-start'}`}>
+                                        <div className="flex items-center gap-2 px-1">
+                                            <span className={`text-[10px] font-bold uppercase tracking-wider ${msg.isYou ? 'text-cyan-400' : 'text-slate-400'}`}>{msg.sender}</span>
+                                            <span className="text-[9px] text-slate-500 font-mono italic opacity-50">{msg.timestamp}</span>
                                         </div>
-                                    ) : (
-                                        <>
-                                            <p className="break-words text-sm leading-relaxed">{msg.content}</p>
-                                            <div className="flex items-center justify-end gap-1.5 mt-1 opacity-50">
-                                                {msg.edited && <span className="text-[10px] italic">(edited)</span>}
-                                                <span className="text-[10px] tabular-nums">{msg.timestamp}</span>
-                                                {msg.isYou && (msg.seen ? <CheckCheck className="w-3 h-3 text-cyan-400" /> : <Check className="w-3 h-3" />)}
-                                            </div>
-                                        </>
-                                    )}
+                                        <div className={`p-3 rounded-2xl text-sm leading-relaxed shadow-lg ${msg.isYou
+                                            ? 'bg-gradient-to-br from-cyan-600 to-cyan-500 text-white rounded-tr-none border border-cyan-400/20'
+                                            : msg.isSystem
+                                                ? 'bg-slate-800/50 text-slate-400 italic border border-slate-700/50 rounded-tl-none'
+                                                : 'bg-slate-800 text-slate-200 border border-slate-700/80 rounded-tl-none'
+                                            }`}>
+                                            {editingMessageId === msg.id ? (
+                                                <div className="flex flex-col gap-2 min-w-[200px]">
+                                                    <textarea value={editInput} onChange={(e) => setEditInput(e.target.value)} className="w-full bg-slate-900 border border-cyan-500/50 rounded-lg p-2 text-sm focus:outline-none" autoFocus />
+                                                    <div className="flex justify-end gap-2 text-xs">
+                                                        <button onClick={() => setEditingMessageId(null)} className="text-slate-400">Cancel</button>
+                                                        <button onClick={saveEdit} className="text-cyan-400 font-bold">Save</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <p className="break-words text-sm leading-relaxed">{msg.content}</p>
+                                                    <div className="flex items-center justify-end gap-1.5 mt-1 opacity-50">
+                                                        {msg.edited && <span className="text-[10px] italic">(edited)</span>}
+                                                        <span className="text-[10px] tabular-nums">{msg.timestamp}</span>
+                                                        {msg.isYou && (msg.seen ? <CheckCheck className="w-3 h-3 text-cyan-400" /> : <Check className="w-3 h-3" />)}
+                                                    </div>
+                                                </>
+                                            )}
 
-                                    {msg.isYou && editingMessageId !== msg.id && (
-                                        <button onClick={() => startEdit(msg)} className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-cyan-400 transition">
-                                            <Edit2 className="w-3.5 h-3.5" />
-                                        </button>
-                                    )}
+                                            {msg.isYou && editingMessageId !== msg.id && (
+                                                <button onClick={() => startEdit(msg)} className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-cyan-400 transition">
+                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         ))}
@@ -432,9 +545,55 @@ export default function ChatScreen({
                         <button onClick={() => fileInputRef.current?.click()} className="p-3 rounded-xl bg-slate-800 text-slate-400 hover:text-cyan-400 transition border border-slate-700"><Paperclip className="w-6 h-6" /></button>
                         <input ref={fileInputRef} type="file" onChange={handleFileSelect} className="hidden" />
                         <div className="flex-1 relative">
-                            <textarea rows="1" value={messageInput} onChange={(e) => { setMessageInput(e.target.value); socketRef.current?.emit('typing', { sessionId, username, isTyping: e.target.value.length > 0 }) }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="Message..." className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 transition resize-none" />
+                            <div className="relative p-6 border-t border-slate-800/50 bg-slate-900/50 backdrop-blur-xl">
+                                {/* Mention Autocomplete List */}
+                                {showMentionList && filteredMentions.length > 0 && (
+                                    <div className="absolute bottom-[calc(100%-8px)] left-6 right-6 bg-slate-800 border-2 border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-200">
+                                        <div className="p-2 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+                                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-2">Mention Member</span>
+                                            <span className="text-[9px] font-mono text-cyan-500/50 px-2 italic">Tab or Enter to select</span>
+                                        </div>
+                                        <div className="max-h-48 overflow-y-auto no-scrollbar">
+                                            {filteredMentions.map((user, idx) => (
+                                                <button
+                                                    key={user.id}
+                                                    onClick={() => insertMention(user)}
+                                                    onMouseEnter={() => setMentionIndex(idx)}
+                                                    className={`w-full flex items-center gap-3 p-3 transition-colors text-left ${idx === mentionIndex ? 'bg-cyan-500/10 text-cyan-400' : 'text-slate-300 hover:bg-slate-700/50'}`}
+                                                >
+                                                    <div className="w-8 h-8 rounded-full border border-slate-700 overflow-hidden bg-slate-900 flex items-center justify-center flex-shrink-0">
+                                                        {user.pfp ? (
+                                                            <img src={user.pfp} alt="" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <span className="text-[10px] font-bold text-slate-500">{(user.alias || user.username || 'U')[0]}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-xs font-bold font-mono tracking-tight">{user.alias || user.username || 'Member'}</span>
+                                                        <span className="text-[9px] opacity-40 uppercase font-black">@{user.username || 'anonymous'}</span>
+                                                    </div>
+                                                    {idx === mentionIndex && <Zap className="w-3 h-3 ml-auto animate-pulse" />}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <form onSubmit={handleSendMessage} className="relative group">
+                                    <textarea
+                                        rows="1"
+                                        value={input}
+                                        onChange={handleInputChange}
+                                        onKeyDown={handleInputKeyDown}
+                                        placeholder={`Message ${aliasEdit}...`}
+                                        className="w-full bg-slate-950/80 border-2 border-slate-800 rounded-3xl p-4 pr-32 text-white text-sm focus:outline-none focus:border-cyan-500/30 transition-all min-h-[56px] max-h-40 no-scrollbar shadow-inner group-hover:border-slate-700"
+                                    />
+                                    <button type="submit" disabled={!input.trim()} className="absolute right-4 bottom-4 p-3 rounded-full bg-cyan-500 text-white hover:bg-cyan-600 disabled:bg-slate-800 disabled:text-slate-600 transition shadow-lg shadow-cyan-500/10 transform active:scale-95">
+                                        <Send className="w-6 h-6" />
+                                    </button>
+                                </form>
+                            </div>
                         </div>
-                        <button onClick={sendMessage} disabled={!messageInput.trim()} className="p-3 rounded-xl bg-cyan-500 text-white hover:bg-cyan-600 disabled:bg-slate-800 disabled:text-slate-600 transition shadow-lg shadow-cyan-500/10 transform active:scale-95"><Send className="w-6 h-6" /></button>
                     </div>
                 </div>
 
@@ -455,11 +614,26 @@ export default function ChatScreen({
                                 <div
                                     key={u.id}
                                     onClick={() => !u.isYou && handleInviteUser(u)}
-                                    className={`flex items-center gap-3 p-2 rounded-lg transition ${!u.isYou ? 'cursor-pointer hover:bg-slate-700/50' : ''}`}
-                                    title={!u.isYou ? `Invite ${u.name} to private room` : ''}
+                                    className={`flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-800/50 transition-all border border-transparent hover:border-slate-700/50 group ${!u.isYou ? 'cursor-pointer' : ''}`}
+                                    title={!u.isYou ? `Invite ${u.alias || u.username} to private room` : ''}
                                 >
-                                    <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)] animate-pulse" />
-                                    <p className="text-sm font-medium text-slate-300 truncate font-mono tracking-tight">{u.name}{u.isYou && <span className="text-[10px] text-slate-500 ml-1">(You)</span>}</p>
+                                    <div className="relative">
+                                        <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center flex-shrink-0 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.1)] transition overflow-hidden">
+                                            {u.pfp ? (
+                                                <img src={u.pfp} alt="" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <span className="text-xs font-bold text-slate-500">{(u.alias || u.username || 'M')[0]}</span>
+                                            )}
+                                        </div>
+                                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-800 group-hover:scale-125 transition"></div>
+                                    </div>
+                                    <div className="flex flex-col flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="text-sm font-bold text-slate-100 group-hover:text-cyan-400 transition truncate">{u.alias || u.username || 'Member'}</span>
+                                            {u.username === username && <span className="text-[8px] bg-cyan-500/10 text-cyan-500 px-1 rounded font-black uppercase tracking-tighter">You</span>}
+                                        </div>
+                                        <span className="text-[10px] text-slate-500 font-mono tracking-tighter opacity-70 truncate">@{u.username || 'anonymous'}</span>
+                                    </div>
                                 </div>
                             ))}
                         </div>

@@ -6,6 +6,7 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
     const [sessionId, setSessionId] = useState('')
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
+    const [pfp, setPfp] = useState(null)
     const [showPassword, setShowPassword] = useState(false)
     const [errorMessage, setErrorMessage] = useState('')
 
@@ -22,7 +23,7 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
             setErrorMessage('Password required')
             return
         }
-        onJoin({ sessionId, username, password })
+        onJoin({ sessionId, username, password, pfp })
         setErrorMessage('')
     }
 
@@ -35,8 +36,20 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
             setErrorMessage('Password must be at least 4 characters')
             return
         }
-        onCreate({ username, password })
+        onCreate({ username, password, pfp })
         setErrorMessage('')
+    }
+
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0]
+        if (!file) return
+        if (file.size > 2 * 1024 * 1024) {
+            setErrorMessage('Image size must be under 2MB')
+            return
+        }
+        const reader = new FileReader()
+        reader.onloadend = () => setPfp(reader.result)
+        reader.readAsDataURL(file)
     }
 
     return (
@@ -59,6 +72,40 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
                     <p className="text-slate-400 text-sm font-light tracking-wide">
                         Temporary. Secure. Gone Forever.
                     </p>
+                </div>
+
+                {/* PFP Upload */}
+                <div className="flex flex-col items-center mb-8 animate-in fade-in zoom-in duration-500 delay-200">
+                    <div className="relative group">
+                        <input
+                            type="file"
+                            id="pfp-upload"
+                            accept="image/*"
+                            onChange={handleFileSelect}
+                            className="hidden"
+                        />
+                        <label
+                            htmlFor="pfp-upload"
+                            className="block w-24 h-24 rounded-full border-2 border-dashed border-slate-700 hover:border-cyan-500/50 transition-all cursor-pointer overflow-hidden p-1 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.2)] bg-slate-800/50"
+                        >
+                            {pfp ? (
+                                <img src={pfp} alt="Profile" className="w-full h-full rounded-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 group-hover:text-cyan-400 transition">
+                                    <Zap className="w-6 h-6 mb-1 opacity-20 group-hover:opacity-100" />
+                                    <span className="text-[8px] font-black uppercase tracking-widest text-center leading-tight">Add<br />PFP</span>
+                                </div>
+                            )}
+                        </label>
+                        {pfp && (
+                            <button
+                                onClick={() => setPfp(null)}
+                                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition shadow-lg"
+                            >
+                                <Zap className="w-3 h-3 rotate-45" />
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Tabs */}
