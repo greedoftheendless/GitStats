@@ -19,7 +19,8 @@ export default function ChatScreen({
     onReceiveInvite,
     onReceiveRejection,
     notificationCount,
-    onToggleNotifications
+    onToggleNotifications,
+    onNewMessage
 }) {
     const [messages, setMessages] = useState([])
     const [messageInput, setMessageInput] = useState('')
