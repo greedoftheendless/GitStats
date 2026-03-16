@@ -19,27 +19,35 @@ export default function EphemeralComms() {
 
     // Notification & Activity states
     const [roomActivity, setRoomActivity] = useState({}) // { roomId: { unread: 0, hasPing: false } }
-    const [notifSettings, setNotifSettings] = useState({ mentionsOnly: true, mentionScope: 'all', volume: 0.5 })
+    const [notifSettings, setNotifSettings] = useState({ mentionsOnly: true, mentionScope: 'all' }) // scope: 'all' | 'inactive'
     const [showSettings, setShowSettings] = useState(false)
 
     // Derived states
     const unreadCount = notifications.filter(n => !n.read).length
     const activeRoom = rooms.find(r => r.id === activeRoomId)
 
-    const handleJoinOrCreate = ({ sessionId, username, password, pfp }) => {
-        const id = 'room-' + Date.now()
+    const handleJoinOrCreate = (data, isNew = false) => {
+        const sessionId = isNew
+            ? Math.random().toString(36).substring(2, 10).toUpperCase()
+            : data.sessionId
 
-        // Prevent duplicates based on sessionId
-        if (rooms.find(r => r.sessionId === sessionId)) {
-            setActiveRoomId(rooms.find(r => r.sessionId === sessionId).id)
+        // Prevent duplicates
+        if (rooms.find(r => r.id === sessionId)) {
+            setActiveRoomId(sessionId)
             setShowAuth(false)
             return
         }
 
-        const newRoom = { id, sessionId, username, password, pfp, alias: sessionId, messages: [] }
-        setRooms(prev => [...prev, newRoom])
-        setActiveRoomId(id)
-        setRoomActivity(prev => ({ ...prev, [id]: { unread: 0, hasPing: false } }))
+        const newRoom = {
+            id: sessionId,
+            username: data.username,
+            password: data.password,
+            alias: data.alias || `Room ${rooms.length + 1}`
+        }
+
+        setRooms([...rooms, newRoom])
+        setActiveRoomId(sessionId)
+        setRoomActivity(prev => ({ ...prev, [sessionId]: { unread: 0, hasPing: false } }))
         setShowAuth(false)
     }
 
@@ -70,14 +78,14 @@ export default function EphemeralComms() {
             const gain = context.createGain()
             osc.type = 'sine'
             osc.frequency.setValueAtTime(880, context.currentTime) // A5
-            gain.gain.setValueAtTime(notifSettings.volume * 0.2, context.currentTime)
+            gain.gain.setValueAtTime(0.1, context.currentTime)
             gain.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.5)
             osc.connect(gain)
             gain.connect(context.destination)
             osc.start()
             osc.stop(context.currentTime + 0.5)
         } catch (e) { console.warn('Audio play blocked or failed', e) }
-    }, [notifSettings.volume])
+    }, [])
 
     const requestNotificationPermission = async () => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -135,10 +143,10 @@ export default function EphemeralComms() {
         playSound()
         showBrowserNotification(toastTitle, toastMsg)
 
-        // Auto-remove toast after 5 seconds
+        // Auto-remove toast after 8 seconds
         setTimeout(() => {
             removeToast(id)
-        }, 5000)
+        }, 8000)
     }
 
     const removeToast = (id) => {
@@ -148,8 +156,7 @@ export default function EphemeralComms() {
     const handleAcceptInvite = (notif) => {
         const { sessionId, password } = notif.data
         const username = rooms.length > 0 ? rooms[0].username : 'User'
-        const pfp = rooms.length > 0 ? rooms[0].pfp : null
-        handleJoinOrCreate({ sessionId, username, password, pfp })
+        handleJoinOrCreate({ sessionId, username, password })
         removeNotification(notif.id)
         removeToast(notif.id)
     }
@@ -236,6 +243,9 @@ export default function EphemeralComms() {
 
             // Only add global notification (sound/toast) if it's a mention and setting allows
             if (isMentioned && notifSettings.mentionsOnly) {
+                // If scope is 'inactive', and we ARE in this room, don't notify
+                if (notifSettings.mentionScope === 'inactive' && roomId === activeRoomId) return
+
                 addNotification('ping', {
                     ...msg,
                     roomId,
@@ -268,11 +278,8 @@ export default function EphemeralComms() {
                 {showAuth && (
                     <div className="absolute inset-0 z-50">
                         <AuthScreen
-                            onJoin={(data) => handleJoinOrCreate(data)}
-                            onCreate={(data) => {
-                                const sid = Math.random().toString(36).substring(2, 10).toUpperCase()
-                                handleJoinOrCreate({ ...data, sessionId: sid })
-                            }}
+                            onJoin={(data) => handleJoinOrCreate(data, false)}
+                            onCreate={(data) => handleJoinOrCreate(data, true)}
                             onCancel={rooms.length > 0 ? () => setShowAuth(false) : null}
                         />
                     </div>
@@ -297,14 +304,13 @@ export default function EphemeralComms() {
                         className={`flex-1 flex flex-col ${activeRoomId === room.id ? 'block' : 'hidden'}`}
                     >
                         <ChatScreen
-                            sessionId={room.sessionId}
+                            sessionId={room.id}
                             username={room.username}
                             password={room.password}
                             alias={room.alias}
-                            pfp={room.pfp}
                             onUpdateAlias={(newAlias) => handleUpdateAlias(room.id, newAlias)}
                             onLogout={() => handleLeaveRoom(room.id)}
-                            onJoinRoom={(data) => handleJoinOrCreate(data)}
+                            onJoinRoom={(data) => handleJoinOrCreate(data, false)}
                             onReceiveInvite={(data) => addNotification('invite', data)}
                             onReceiveRejection={(data) => addNotification('rejection', data)}
                             notificationCount={unreadCount}
@@ -314,9 +320,10 @@ export default function EphemeralComms() {
                     </div>
                 ))}
 
+                {/* Real-time Toasts (Pop-outs) */}
                 <div className="absolute top-6 right-6 z-[100] flex flex-col gap-3 pointer-events-none w-full max-w-sm">
                     {toasts.map((t) => (
-                        <div key={t.id} onClick={() => removeToast(t.id)} className="pointer-events-auto animate-in slide-in-from-right slide-out-to-right fade-in fade-out duration-300 cursor-pointer">
+                        <div key={t.id} className="pointer-events-auto animate-in slide-in-from-right fade-in duration-300">
                             <div className={`p-4 rounded-2xl border-2 shadow-2xl backdrop-blur-xl flex gap-3 ${t.type === 'invite' ? 'bg-slate-800/90 border-cyan-500/40 shadow-cyan-500/10' :
                                 t.type === 'ping' ? 'bg-slate-800/90 border-purple-500/40 shadow-purple-500/10' :
                                     t.type === 'rejection' ? 'bg-slate-800/90 border-red-500/40 shadow-red-500/10' :
@@ -337,12 +344,12 @@ export default function EphemeralComms() {
 
                                     {t.type === 'invite' && (
                                         <div className="flex gap-2 mt-3">
-                                            <button onClick={(e) => { e.stopPropagation(); removeToast(t.id); }} className="px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 text-[10px] font-bold hover:bg-slate-700 transition uppercase tracking-widest">Later</button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleAcceptInvite(t); }} className="px-3 py-1.5 rounded-lg bg-cyan-500 text-white text-[10px] font-black hover:bg-cyan-600 transition tracking-widest uppercase shadow-lg shadow-cyan-500/20">Join</button>
+                                            <button onClick={() => removeToast(t.id)} className="px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 text-[10px] font-bold hover:bg-slate-700 transition uppercase tracking-widest">Later</button>
+                                            <button onClick={() => handleAcceptInvite(t)} className="px-3 py-1.5 rounded-lg bg-cyan-500 text-white text-[10px] font-black hover:bg-cyan-600 transition tracking-widest uppercase shadow-lg shadow-cyan-500/20">Join</button>
                                         </div>
                                     )}
 
-                                    <button onClick={(e) => { e.stopPropagation(); removeToast(t.id); }} className="absolute -top-1 -right-1 p-1 text-slate-500 hover:text-white transition group">
+                                    <button onClick={() => removeToast(t.id)} className="absolute -top-1 -right-1 p-1 text-slate-500 hover:text-white transition group">
                                         <X className="w-4 h-4" />
                                     </button>
                                 </div>
@@ -392,41 +399,23 @@ export default function EphemeralComms() {
                                     </label>
 
                                     {notifSettings.mentionsOnly && (
-                                        <div className="pl-7 space-y-3 animate-in slide-in-from-top duration-300">
-                                            <div>
-                                                <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-2">Mention Scope</p>
-                                                <div className="flex flex-col gap-2">
-                                                    <button
-                                                        onClick={() => setNotifSettings({ ...notifSettings, mentionScope: 'all' })}
-                                                        className={`flex items-center gap-2 text-[10px] font-bold py-1 px-3 rounded-lg transition ${notifSettings.mentionScope === 'all' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'text-slate-500 hover:text-slate-300'}`}
-                                                    >
-                                                        <div className={`w-1.5 h-1.5 rounded-full ${notifSettings.mentionScope === 'all' ? 'bg-purple-400' : 'bg-slate-700'}`} />
-                                                        All Rooms (Include active)
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setNotifSettings({ ...notifSettings, mentionScope: 'inactive' })}
-                                                        className={`flex items-center gap-2 text-[10px] font-bold py-1 px-3 rounded-lg transition ${notifSettings.mentionScope === 'inactive' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'text-slate-500 hover:text-slate-300'}`}
-                                                    >
-                                                        <div className={`w-1.5 h-1.5 rounded-full ${notifSettings.mentionScope === 'inactive' ? 'bg-purple-400' : 'bg-slate-700'}`} />
-                                                        Inactive Rooms Only
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            <div className="pt-2 border-t border-slate-800">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">Alert Volume</p>
-                                                    <span className="text-[10px] text-purple-400 font-mono font-bold">{Math.round(notifSettings.volume * 100)}%</span>
-                                                </div>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="1"
-                                                    step="0.1"
-                                                    value={notifSettings.volume}
-                                                    onChange={(e) => setNotifSettings({ ...notifSettings, volume: parseFloat(e.target.value) })}
-                                                    className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                                                />
+                                        <div className="pl-7 space-y-2 animate-in slide-in-from-top duration-300">
+                                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Mention Scope</p>
+                                            <div className="flex flex-col gap-2">
+                                                <button
+                                                    onClick={() => setNotifSettings({ ...notifSettings, mentionScope: 'all' })}
+                                                    className={`flex items-center gap-2 text-[10px] font-bold py-1 px-3 rounded-lg transition ${notifSettings.mentionScope === 'all' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'text-slate-500 hover:text-slate-300'}`}
+                                                >
+                                                    <div className={`w-1.5 h-1.5 rounded-full ${notifSettings.mentionScope === 'all' ? 'bg-purple-400' : 'bg-slate-700'}`} />
+                                                    All Rooms (Include active)
+                                                </button>
+                                                <button
+                                                    onClick={() => setNotifSettings({ ...notifSettings, mentionScope: 'inactive' })}
+                                                    className={`flex items-center gap-2 text-[10px] font-bold py-1 px-3 rounded-lg transition ${notifSettings.mentionScope === 'inactive' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'text-slate-500 hover:text-slate-300'}`}
+                                                >
+                                                    <div className={`w-1.5 h-1.5 rounded-full ${notifSettings.mentionScope === 'inactive' ? 'bg-purple-400' : 'bg-slate-700'}`} />
+                                                    Inactive Rooms Only
+                                                </button>
                                             </div>
                                         </div>
                                     )}

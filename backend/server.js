@@ -50,14 +50,13 @@ io.on('connection', (socket) => {
     let currentUsername = null
 
     // ── Join or create a session ────────────────────────────────────────────
-    socket.on('join-session', ({ sessionId, username, password, alias, pfp }) => {
+    socket.on('join-session', ({ sessionId, username, password }) => {
         if (!sessionId || !username || !password) {
             socket.emit('join-error', { message: 'Missing session ID, username, or password.' })
             return
         }
 
         const sid = sessionId.toUpperCase().trim()
-        const userObj = { id: socket.id, username, alias: alias || username, pfp }
 
         if (sessions.has(sid)) {
             // Session exists – verify password
@@ -67,12 +66,12 @@ io.on('connection', (socket) => {
                 return
             }
             // Add user to existing session
-            session.users.set(socket.id, userObj)
+            session.users.set(socket.id, { id: socket.id, username })
         } else {
             // Create new session
             sessions.set(sid, {
                 password,
-                users: new Map([[socket.id, userObj]])
+                users: new Map([[socket.id, { id: socket.id, username }]])
             })
         }
 
@@ -84,7 +83,7 @@ io.on('connection', (socket) => {
         const users = Array.from(sessions.get(sid).users.values())
 
         // Confirm to the joining user
-        socket.emit('session-joined', { success: true, users })
+        socket.emit('session-joined', { users })
 
         // Notify others in the room
         socket.to(sid).emit('user-joined', { userId: socket.id, username, users })
