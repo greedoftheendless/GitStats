@@ -84,6 +84,7 @@ export default function ChatScreen({
         socket.on('message', (msg) => {
             console.log(`[msg-rcv] from ${msg.sender}: ${msg.content}`)
             setMessages((prev) => [...prev, { ...msg, isYou: msg.isYou }])
+            if (onNewMessage) onNewMessage(msg)
             if (document.visibilityState === 'visible') {
                 socket.emit('messages-read', { sessionId, messageIds: [msg.id], reader: username })
             }

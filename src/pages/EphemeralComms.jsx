@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import AuthScreen from '../components/AuthScreen.jsx'
 import ChatScreen from '../components/ChatScreen.jsx'
 import RoomSidebar from '../components/RoomSidebar.jsx'
-import { Bell, X, Zap, Check, Trash2 } from 'lucide-react'
+import { Bell, X, Zap, Check, Trash2, Settings2 } from 'lucide-react'
 
 export default function EphemeralComms() {
     const [rooms, setRooms] = useState([]) // Array of { id, username, password }
@@ -13,6 +13,11 @@ export default function EphemeralComms() {
     const [notifications, setNotifications] = useState([]) // Array of { id, type, data, timestamp, read }
     const [showNotifications, setShowNotifications] = useState(false)
     const [rejectionForm, setRejectionForm] = useState(null) // { targetId, declinerName, targetSocket, notificationId }
+
+    // Notification & Activity states
+    const [roomActivity, setRoomActivity] = useState({}) // { roomId: { unread: 0, hasPing: false } }
+    const [notifSettings, setNotifSettings] = useState({ allMessages: true, mentionsOnly: true })
+    const [showSettings, setShowSettings] = useState(false)
 
     const handleJoinOrCreate = (data, isNew = false) => {
         const sessionId = isNew
@@ -35,6 +40,7 @@ export default function EphemeralComms() {
 
         setRooms([...rooms, newRoom])
         setActiveRoomId(sessionId)
+        setRoomActivity(prev => ({ ...prev, [sessionId]: { unread: 0, hasPing: false } }))
         setShowAuth(false)
     }
 
@@ -111,8 +117,42 @@ export default function EphemeralComms() {
     }
 
     const toggleNotifications = () => {
-        if (!showNotifications) markAllRead()
+        if (!showNotifications) {
+            markAllRead()
+            setShowSettings(false)
+        }
         setShowNotifications(!showNotifications)
+    }
+
+    const handleNewMessage = (roomId, msg) => {
+        if (msg.isSystem || msg.isYou) return
+
+        const isMentioned = msg.content.toLowerCase().includes(`@${rooms.find(r => r.id === roomId)?.username.toLowerCase()}`)
+
+        if (roomId !== activeRoomId) {
+            setRoomActivity(prev => {
+                const current = prev[roomId] || { unread: 0, hasPing: false }
+                return {
+                    ...prev,
+                    [roomId]: {
+                        unread: current.unread + 1,
+                        hasPing: current.hasPing || isMentioned
+                    }
+                }
+            })
+
+            // Only add global notification if setting allows
+            if (notifSettings.allMessages || (isMentioned && notifSettings.mentionsOnly)) {
+                addNotification(isMentioned ? 'ping' : 'message', {
+                    ...msg,
+                    roomId,
+                    roomAlias: rooms.find(r => r.id === roomId)?.alias || roomId
+                })
+            }
+        } else if (isMentioned && notifSettings.mentionsOnly) {
+            // Even if in active room, maybe we want a "ping" notification if setting is on
+            addNotification('ping', { ...msg, roomId, roomAlias: 'This Room' })
+        }
     }
 
     const unreadCount = notifications.filter(n => !n.read).length
@@ -127,6 +167,7 @@ export default function EphemeralComms() {
                     activeRoomId={activeRoomId}
                     onSwitchRoom={(id) => {
                         setActiveRoomId(id)
+                        setRoomActivity(prev => ({ ...prev, [id]: { unread: 0, hasPing: false } }))
                         setShowAuth(false)
                     }}
                     onLeaveRoom={handleLeaveRoom}
@@ -168,6 +209,7 @@ export default function EphemeralComms() {
                             onReceiveRejection={(data) => addNotification('rejection', data)}
                             notificationCount={unreadCount}
                             onToggleNotifications={toggleNotifications}
+                            onNewMessage={(msg) => handleNewMessage(room.id, msg)}
                         />
                     </div>
                 ))}
@@ -181,6 +223,9 @@ export default function EphemeralComms() {
                                 <h3 className="text-white font-bold uppercase tracking-wider text-sm">Communications</h3>
                             </div>
                             <div className="flex items-center gap-2">
+                                <button onClick={() => setShowSettings(!showSettings)} className={`p-1.5 transition rounded-md ${showSettings ? 'bg-cyan-500/10 text-cyan-400' : 'text-slate-500 hover:text-white'}`} title="Notification Settings">
+                                    <Settings2 className="w-4 h-4" />
+                                </button>
                                 <button onClick={clearAllNotifications} className="p-1.5 text-slate-500 hover:text-red-400 transition" title="Clear All">
                                     <Trash2 className="w-4 h-4" />
                                 </button>
@@ -190,6 +235,42 @@ export default function EphemeralComms() {
                             </div>
                         </div>
 
+                        {showSettings && (
+                            <div className="p-4 bg-slate-900/50 border-b border-slate-700 animate-in slide-in-from-top duration-200">
+                                <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-3 px-1">Alert Preferences</h4>
+                                <div className="space-y-3">
+                                    <label className="flex items-center gap-3 cursor-pointer group">
+                                        <div className="relative flex items-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={notifSettings.allMessages}
+                                                onChange={(e) => setNotifSettings({ ...notifSettings, allMessages: e.target.checked })}
+                                                className="peer h-4 w-4 opacity-0 absolute"
+                                            />
+                                            <div className="h-4 w-4 bg-slate-800 border border-slate-600 rounded peer-checked:bg-cyan-500 peer-checked:border-cyan-500 transition-all flex items-center justify-center">
+                                                <Check className="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" />
+                                            </div>
+                                        </div>
+                                        <span className="text-xs text-slate-300 group-hover:text-white transition">General Messages</span>
+                                    </label>
+                                    <label className="flex items-center gap-3 cursor-pointer group">
+                                        <div className="relative flex items-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={notifSettings.mentionsOnly}
+                                                onChange={(e) => setNotifSettings({ ...notifSettings, mentionsOnly: e.target.checked })}
+                                                className="peer h-4 w-4 opacity-0 absolute"
+                                            />
+                                            <div className="h-4 w-4 bg-slate-800 border border-slate-600 rounded peer-checked:bg-purple-500 peer-checked:border-purple-500 transition-all flex items-center justify-center">
+                                                <Check className="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" />
+                                            </div>
+                                        </div>
+                                        <span className="text-xs text-slate-300 group-hover:text-white transition">Mentions (@username)</span>
+                                    </label>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
                             {notifications.length === 0 ? (
                                 <div className="h-full flex flex-col items-center justify-center text-slate-600 space-y-2 opacity-50">
@@ -198,10 +279,17 @@ export default function EphemeralComms() {
                                 </div>
                             ) : (
                                 notifications.map((n) => (
-                                    <div key={n.id} className={`p-4 rounded-xl border transition-all duration-300 ${n.type === 'invite' ? 'bg-cyan-500/5 border-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.05)]' : 'bg-red-500/5 border-red-500/20'}`}>
+                                    <div key={n.id} className={`p-4 rounded-xl border transition-all duration-300 ${n.type === 'invite' ? 'bg-cyan-500/5 border-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.05)]' :
+                                            n.type === 'ping' ? 'bg-purple-500/5 border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.05)]' :
+                                                'bg-slate-700/10 border-slate-700/30'
+                                        }`}>
                                         <div className="flex justify-between items-start mb-2">
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-tighter ${n.type === 'invite' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-red-500/10 text-red-400'}`}>
-                                                {n.type === 'invite' ? 'Join Request' : 'Rejection'}
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-tighter ${n.type === 'invite' ? 'bg-cyan-500/10 text-cyan-400' :
+                                                    n.type === 'ping' ? 'bg-purple-500/10 text-purple-400' :
+                                                        n.type === 'rejection' ? 'bg-red-500/10 text-red-500' :
+                                                            'bg-slate-700/30 text-slate-400'
+                                                }`}>
+                                                {n.type === 'invite' ? 'Join Request' : n.type === 'ping' ? 'Mention' : n.type === 'message' ? 'New Message' : 'Rejection'}
                                             </span>
                                             <span className="text-[9px] text-slate-500 font-mono italic">{n.timestamp}</span>
                                         </div>
@@ -219,6 +307,20 @@ export default function EphemeralComms() {
                                                 <div className="flex gap-2 pt-1">
                                                     <button onClick={() => handleDeclineInvite(n)} className="flex-1 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 text-xs font-semibold hover:bg-slate-700 transition">Decline</button>
                                                     <button onClick={() => handleAcceptInvite(n)} className="flex-1 py-1.5 rounded-lg bg-cyan-500 text-white text-xs font-bold hover:bg-cyan-600 transition shadow-lg shadow-cyan-400/10 tracking-widest uppercase">Accept</button>
+                                                </div>
+                                            </div>
+                                        ) : n.type === 'ping' || n.type === 'message' ? (
+                                            <div className="space-y-2">
+                                                <p className="text-sm text-slate-200 leading-tight">
+                                                    <span className={n.type === 'ping' ? 'text-purple-400 font-bold' : 'text-slate-100 font-bold'}>{n.data.sender}</span>: {n.data.content}
+                                                </p>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter bg-slate-800/50 px-1.5 py-0.5 rounded italic">in {n.data.roomAlias}</span>
+                                                    <button onClick={() => {
+                                                        setActiveRoomId(n.data.roomId)
+                                                        setRoomActivity(prev => ({ ...prev, [n.data.roomId]: { unread: 0, hasPing: false } }))
+                                                        removeNotification(n.id)
+                                                    }} className="text-[10px] text-cyan-500 hover:text-cyan-400 font-bold uppercase tracking-widest transition">Jump</button>
                                                 </div>
                                             </div>
                                         ) : (
