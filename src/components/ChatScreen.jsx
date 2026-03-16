@@ -445,8 +445,12 @@ export default function ChatScreen({
                         ) : (
                             <div key={msg.id} className={`flex ${msg.isYou ? 'justify-end' : 'justify-start'} group animate-in fade-in slide-in-from-bottom duration-300 gap-3`}>
                                 {!msg.isYou && (
-                                    <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-sm border border-white/10 ${msg.avatar?.color || 'bg-slate-700'}`}>
-                                        {msg.avatar?.icon || '👤'}
+                                    <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-sm border border-white/10 overflow-hidden ${msg.avatar?.color || 'bg-slate-700'}`}>
+                                        {msg.avatar?.isImage ? (
+                                            <img src={msg.avatar.icon} alt={msg.sender} className="w-full h-full object-cover" />
+                                        ) : (
+                                            msg.avatar?.icon || '👤'
+                                        )}
                                     </div>
                                 )}
                                 <div className={`relative max-w-[80%] px-4 py-2 rounded-2xl ${msg.isYou ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-50' : 'bg-slate-800 border border-slate-700 text-slate-200'}`}>
@@ -568,8 +572,12 @@ export default function ChatScreen({
                                     className={`flex items-center gap-3 p-2 rounded-lg transition ${!u.isYou ? 'cursor-pointer hover:bg-slate-700/50' : ''}`}
                                     title={!u.isYou ? `Invite ${u.name} to private room` : ''}
                                 >
-                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs border border-white/5 relative ${u.avatar?.color || 'bg-slate-800'}`}>
-                                        {u.avatar?.icon || '👤'}
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs border border-white/5 relative overflow-hidden ${u.avatar?.color || 'bg-slate-800'}`}>
+                                        {u.avatar?.isImage ? (
+                                            <img src={u.avatar.icon} alt={u.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                            u.avatar?.icon || '👤'
+                                        )}
                                         <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-cyan-500 border border-slate-900 shadow-[0_0_8px_rgba(6,182,212,0.5)] animate-pulse" />
                                     </div>
                                     <p className="text-sm font-medium text-slate-300 truncate font-mono tracking-tight">{u.name}{u.isYou && <span className="text-[10px] text-slate-500 ml-1">(You)</span>}</p>

@@ -21,6 +21,7 @@ export default function EphemeralComms() {
     const [roomActivity, setRoomActivity] = useState({}) // { roomId: { unread: 0, hasPing: false } }
     const [notifSettings, setNotifSettings] = useState({ mentionsOnly: true, mentionScope: 'all', notifVolume: 0.5 }) // volume: 0.0 to 1.0
     const [showSettings, setShowSettings] = useState(false)
+    const [lastIdentity, setLastIdentity] = useState(null) // { username, avatar }
 
     // Derived states
     const unreadCount = notifications.filter(n => !n.read).length
@@ -49,6 +50,7 @@ export default function EphemeralComms() {
         setRooms([...rooms, newRoom])
         setActiveRoomId(sessionId)
         setRoomActivity(prev => ({ ...prev, [sessionId]: { unread: 0, hasPing: false } }))
+        setLastIdentity({ username: data.username, avatar: data.avatar })
         setShowAuth(false)
     }
 
@@ -159,8 +161,9 @@ export default function EphemeralComms() {
 
     const handleAcceptInvite = (notif) => {
         const { sessionId, password } = notif.data
-        const username = rooms.length > 0 ? rooms[0].username : 'User'
-        handleJoinOrCreate({ sessionId, username, password })
+        const username = lastIdentity?.username || (rooms.length > 0 ? rooms[0].username : 'User')
+        const avatar = lastIdentity?.avatar || (rooms.length > 0 ? rooms[0].avatar : null)
+        handleJoinOrCreate({ sessionId, username, password, avatar })
         removeNotification(notif.id)
         removeToast(notif.id)
     }
@@ -275,6 +278,8 @@ export default function EphemeralComms() {
                     }}
                     onLeaveRoom={handleLeaveRoom}
                     onAddRoom={() => setShowAuth(true)}
+                    roomActivity={roomActivity}
+                    userAvatar={activeRoom?.avatar || lastIdentity?.avatar}
                 />
             )}
 
@@ -285,6 +290,7 @@ export default function EphemeralComms() {
                             onJoin={(data) => handleJoinOrCreate(data, false)}
                             onCreate={(data) => handleJoinOrCreate(data, true)}
                             onCancel={rooms.length > 0 ? () => setShowAuth(false) : null}
+                            initialIdentity={lastIdentity}
                         />
                     </div>
                 )}
