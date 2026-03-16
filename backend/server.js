@@ -25,7 +25,7 @@ import express from 'express'
 import { Server } from 'socket.io'
 import cors from 'cors'
 
-const PORT = 3001
+const PORT = process.env.PORT || 3001
 
 const app = express()
 app.use(cors({ origin: '*' }))
@@ -43,6 +43,9 @@ const sessions = new Map()
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok', activeSessions: sessions.size }))
+app.get('/', (_req, res) => {
+  res.send('Ephemeral Comms backend is running')
+})
 
 // ── Socket.IO events ─────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
