@@ -1,6 +1,6 @@
 import { Plus, X } from 'lucide-react'
 
-export default function RoomSidebar({ rooms, activeRoomId, onSwitchRoom, onLeaveRoom, onAddRoom, roomActivity = {} }) {
+export default function RoomSidebar({ rooms, activeRoomId, onSwitchRoom, onLeaveRoom, onAddRoom, roomActivity = {}, userAvatar }) {
     return (
         <div className="w-20 bg-slate-950 flex flex-col items-center py-6 gap-6 border-r border-slate-800">
             <div className="flex flex-col gap-4 overflow-y-auto flex-1 no-scrollbar">
@@ -60,9 +60,13 @@ export default function RoomSidebar({ rooms, activeRoomId, onSwitchRoom, onLeave
             </div>
 
             <div className="mt-auto">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-violet-500 p-0.5">
-                    <div className="w-full h-full rounded-full bg-slate-950 flex items-center justify-center text-[10px] text-white font-bold uppercase">
-                        {rooms[0]?.username?.substring(0, 2) || '??'}
+                <div className={`w-10 h-10 rounded-full p-0.5 ${userAvatar?.color || 'bg-gradient-to-br from-cyan-500 to-violet-500'}`}>
+                    <div className="w-full h-full rounded-full bg-slate-950 flex items-center justify-center text-sm overflow-hidden">
+                        {userAvatar?.isImage ? (
+                            <img src={userAvatar.icon} alt="You" className="w-full h-full object-cover" />
+                        ) : (
+                            userAvatar?.icon || '👤'
+                        )}
                     </div>
                 </div>
             </div>

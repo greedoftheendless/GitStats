@@ -1,13 +1,37 @@
 import { useState } from 'react'
 import { Zap, Eye, EyeOff } from 'lucide-react'
 
-export default function AuthScreen({ onJoin, onCreate, onCancel }) {
+export default function AuthScreen({ onJoin, onCreate, onCancel, initialIdentity }) {
     const [mode, setMode] = useState('join') // 'join' or 'create'
     const [sessionId, setSessionId] = useState('')
-    const [username, setUsername] = useState('')
+    const [username, setUsername] = useState(initialIdentity?.username || '')
     const [password, setPassword] = useState('')
     const [showPassword, setShowPassword] = useState(false)
     const [errorMessage, setErrorMessage] = useState('')
+
+    const [avatar, setAvatar] = useState(initialIdentity?.avatar || { color: 'bg-cyan-500', icon: '👤' })
+
+    const AVATARS = [
+        { color: 'bg-cyan-500', icon: '👤' },
+        { color: 'bg-black-500', icon: '💀' },
+        { color: 'bg-violet-500', icon: '👻' },
+        { color: 'bg-emerald-500', icon: '🐲' },
+        { color: 'bg-rose-500', icon: '🦊' },
+        { color: 'bg-amber-500', icon: '🐯' },
+        { color: 'bg-indigo-500', icon: '👾' },
+        { color: 'bg-orange-500', icon: '🤖' },
+        { color: 'bg-red-400', icon: '👽' },
+    ]
+
+    const handleCustomUpload = (e) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = () => {
+            setAvatar({ color: 'bg-slate-700', icon: reader.result, isImage: true })
+        }
+        reader.readAsDataURL(file)
+    }
 
     const handleJoin = () => {
         if (!sessionId.trim() || sessionId.length !== 8) {
@@ -22,7 +46,7 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
             setErrorMessage('Password required')
             return
         }
-        onJoin({ sessionId, username, password })
+        onJoin({ sessionId, username, password, avatar })
         setErrorMessage('')
     }
 
@@ -35,7 +59,7 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
             setErrorMessage('Password must be at least 4 characters')
             return
         }
-        onCreate({ username, password })
+        onCreate({ username, password, avatar })
         setErrorMessage('')
     }
 
@@ -59,6 +83,45 @@ export default function AuthScreen({ onJoin, onCreate, onCancel }) {
                     <p className="text-slate-400 text-sm font-light tracking-wide">
                         Temporary. Secure. Gone Forever.
                     </p>
+                </div>
+
+                {/* Avatar Selection */}
+                <div className="mb-6 animate-in fade-in slide-in-from-bottom duration-500 delay-100">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-3 px-1">Select Identity</label>
+                    <div className="grid grid-cols-5 gap-2 bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
+                        {AVATARS.map((a, i) => (
+                            <button
+                                key={i}
+                                onClick={() => setAvatar(a)}
+                                className={`h-10 w-full rounded-lg flex items-center justify-center text-xl transition-all duration-300 transform ${avatar.icon === a.icon
+                                    ? `ring-2 ring-white scale-110 shadow-lg ${a.color}`
+                                    : `hover:scale-105 opacity-40 hover:opacity-100 ${a.color}`}`}
+                            >
+                                {a.icon}
+                            </button>
+                        ))}
+
+                        {/* Custom Upload Button */}
+                        <div className="relative">
+                            <input
+                                type="file"
+                                id="avatar-upload"
+                                className="hidden"
+                                accept="image/*"
+                                onChange={handleCustomUpload}
+                            />
+                            <label
+                                htmlFor="avatar-upload"
+                                className={`h-10 w-full rounded-lg flex items-center justify-center text-xl cursor-pointer transition-all duration-300 transform bg-slate-700 border-2 border-dashed border-slate-600 hover:border-cyan-500/50 ${avatar.isImage ? 'ring-2 ring-white scale-110 shadow-lg !bg-cyan-500/20 !border-cyan-500' : 'opacity-40 hover:opacity-100'}`}
+                            >
+                                {avatar.isImage ? (
+                                    <img src={avatar.icon} alt="Custom" className="w-full h-full object-cover rounded-lg" />
+                                ) : (
+                                    <span className="text-cyan-400 font-bold">+</span>
+                                )}
+                            </label>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Tabs */}
