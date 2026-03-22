@@ -18,14 +18,8 @@ import {
   Bell,
 } from "lucide-react";
 
-<<<<<<< HEAD
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || `http://${window.location.hostname}:3001`
-=======
-import { io } from "socket.io-client";
-
 const BACKEND_URL =
   import.meta.env.VITE_BACKEND_URL || `http://${window.location.hostname}:3001`;
->>>>>>> feature/pfp
 
 export default function ChatScreen({
   sessionId,
